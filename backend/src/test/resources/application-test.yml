@@ -1,0 +1,33 @@
+# Test profile: uses in-memory H2 in PostgreSQL-compatibility mode so the repository
+# and tenant-isolation tests run fast and without Docker/Testcontainers in CI.
+# JSON payload columns are mapped as plain TEXT (see entity classes) so they are
+# portable between H2 (tests) and PostgreSQL (prod), keeping this profile a faithful
+# stand-in for the real schema shape.
+spring:
+  datasource:
+    url: jdbc:h2:mem:forge_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: sa
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: true
+
+  flyway:
+    enabled: false
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+forge:
+  jwt:
+    secret: test-only-secret-do-not-use-in-prod-0123456789abcdef
+    access-token-ttl-minutes: 15
+    issuer: project-forge-test
+  refresh-token:
+    ttl-days: 30
+    redis-key-prefix: "forge:test:refresh:"

@@ -1,0 +1,67 @@
+package com.zentrox.forge.repository.tenant;
+
+import com.zentrox.forge.entity.TenantScopedEntity;
+import jakarta.persistence.EntityManager;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.support.JpaEntityInformation;
+import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Custom repository base class wired in via
+ * {@code @EnableJpaRepositories(repositoryBaseClass = TenantScopedRepositoryImpl.class)}
+ * (see config.TenantJpaRepositoryConfig). This is the structural guardrail called out in
+ * FRD Section 3 (Multi-Tenancy / row-level isolation): the tenant-unaware single-row
+ * accessors inherited from {@code JpaRepository} are overridden to fail fast, forcing every
+ * call site through the explicit {@code *AndTenantId} / {@code *ByTenantId} methods declared
+ * on {@link TenantScopedRepository}.
+ *
+ * This does NOT replace the Hibernate {@code @Filter} enabled per-request in
+ * TenantFilterInterceptor (defense-in-depth); it complements it by making the unsafe
+ * path fail even when the filter is, for whatever reason, not active (e.g. a background
+ * job running outside an HTTP request).
+ */
+public class TenantScopedRepositoryImpl<T extends TenantScopedEntity, ID>
+        extends SimpleJpaRepository<T, ID> implements TenantScopedRepository<T, ID> {
+
+    private static final String DISABLED_MESSAGE =
+            "%s is disabled on tenant-scoped repositories to prevent cross-tenant leakage. "
+                    + "Use the tenant-aware equivalent (e.g. findByIdAndTenantId / findAllByTenantId) instead.";
+
+    public TenantScopedRepositoryImpl(JpaEntityInformation<T, ?> entityInformation, EntityManager entityManager) {
+        super(entityInformation, entityManager);
+    }
+
+    @Override
+    public Optional<T> findById(ID id) {
+        throw new UnsupportedOperationException(DISABLED_MESSAGE.formatted("findById(ID)"));
+    }
+
+    @Override
+    public boolean existsById(ID id) {
+        throw new UnsupportedOperationException(DISABLED_MESSAGE.formatted("existsById(ID)"));
+    }
+
+    @Override
+    public List<T> findAll() {
+        throw new UnsupportedOperationException(DISABLED_MESSAGE.formatted("findAll()"));
+    }
+
+    @Override
+    public List<T> findAll(Sort sort) {
+        throw new UnsupportedOperationException(DISABLED_MESSAGE.formatted("findAll(Sort)"));
+    }
+
+    @Override
+    public org.springframework.data.domain.Page<T> findAll(Pageable pageable) {
+        throw new UnsupportedOperationException(DISABLED_MESSAGE.formatted("findAll(Pageable)"));
+    }
+
+    @Override
+    public void deleteById(ID id) {
+        throw new UnsupportedOperationException(DISABLED_MESSAGE.formatted("deleteById(ID)"));
+    }
+}
