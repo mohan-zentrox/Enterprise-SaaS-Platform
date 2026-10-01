@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-forge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge}
     ports:
-      - "5432:5432"
+      - "${FORGE_POSTGRES_PORT:-5432}:5432"
     volumes:
       - forge_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${FORGE_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -43,8 +43,30 @@ services:
       FORGE_ACCESS_TOKEN_TTL_MINUTES: ${FORGE_ACCESS_TOKEN_TTL_MINUTES:-15}
       FORGE_REFRESH_TOKEN_TTL_DAYS: ${FORGE_REFRESH_TOKEN_TTL_DAYS:-30}
       FORGE_CORS_ALLOWED_ORIGINS: ${FORGE_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      FORGE_SELF_SERVICE_REGISTRATION: ${FORGE_SELF_SERVICE_REGISTRATION:-false}
+      # Required: the app refuses to start without these, rather than defaulting to storing API-key
+      # hashes unpeppered and IdP client secrets in plaintext.
+      FORGE_API_KEY_HASHING_KEY: ${FORGE_API_KEY_HASHING_KEY:?set FORGE_API_KEY_HASHING_KEY in .env}
+      FORGE_SSO_ENCRYPTION_KEY: ${FORGE_SSO_ENCRYPTION_KEY:?set FORGE_SSO_ENCRYPTION_KEY in .env}
+      FORGE_API_KEY_RATE_LIMIT: ${FORGE_API_KEY_RATE_LIMIT:-120}
+      FORGE_SSO_BASE_URL: ${FORGE_SSO_BASE_URL:-http://localhost:8080}
+      FORGE_MAIL_ENABLED: ${FORGE_MAIL_ENABLED:-false}
+      FORGE_MAIL_FROM: ${FORGE_MAIL_FROM:-no-reply@localhost}
+      FORGE_BILLING_PROVIDER: ${FORGE_BILLING_PROVIDER:-manual}
+      FORGE_BILLING_WEBHOOK_SECRET: ${FORGE_BILLING_WEBHOOK_SECRET:-}
+      FORGE_BILLING_SELF_SERVE: ${FORGE_BILLING_SELF_SERVE:-true}
+      FORGE_USAGE_RESET_CRON: ${FORGE_USAGE_RESET_CRON:-0 5 0 1 * *}
+      FORGE_SSO_SWEEP_MS: ${FORGE_SSO_SWEEP_MS:-3600000}
     ports:
-      - "8080:8080"
+      - "${FORGE_BACKEND_PORT:-8080}:8080"
+    # Actuator health is exposed via spring-boot-starter-actuator and permitAll'd in SecurityConfig.
+    # start_period covers JVM + Flyway + Hibernate validation, which takes ~45s on a cold start.
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,9 +80,10 @@ services:
     environment:
       VITE_API_PROXY_TARGET: http://backend:8080
     ports:
-      - "5173:80"
+      - "${FORGE_FRONTEND_PORT:-5173}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   forge_postgres_data:
