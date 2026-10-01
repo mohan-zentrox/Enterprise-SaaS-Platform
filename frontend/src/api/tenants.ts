@@ -1,5 +1,5 @@
 import { apiClient } from "@/api/client";
-import type { TenantCreateResponse } from "@/types";
+import type { Tenant, TenantCreateResponse } from "@/types";
 
 export interface TenantCreatePayload {
   name: string;
@@ -11,5 +11,15 @@ export interface TenantCreatePayload {
 
 export async function createTenant(payload: TenantCreatePayload): Promise<TenantCreateResponse> {
   const { data } = await apiClient.post<TenantCreateResponse>("/tenants", payload);
+  return data;
+}
+
+export async function getCurrentTenant(): Promise<Tenant> {
+  const { data } = await apiClient.get<Tenant>("/tenants/current");
+  return data;
+}
+
+export async function renameCurrentTenant(name: string): Promise<Tenant> {
+  const { data } = await apiClient.patch<Tenant>("/tenants/current", { name });
   return data;
 }

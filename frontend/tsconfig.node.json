@@ -4,7 +4,13 @@
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "types": ["node"],
+    // A referenced composite project may not disable emit (TS6310), so send the output
+    // somewhere disposable instead of letting it land as vite.config.js /
+    // vite.config.d.ts next to the source file.
+    "outDir": "./node_modules/.tmp/node-config",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
   "include": ["vite.config.ts"]
 }
