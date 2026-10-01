@@ -3,6 +3,8 @@ package com.zentrox.forge.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zentrox.forge.aop.Audited;
+import com.zentrox.forge.billing.RequiresEntitlement;
+import com.zentrox.forge.billing.UsageMetric;
 import com.zentrox.forge.dto.workflow.WorkflowDefinitionPayload;
 import com.zentrox.forge.dto.workflow.WorkflowDefinitionRequest;
 import com.zentrox.forge.dto.workflow.WorkflowDefinitionResponse;
@@ -16,10 +18,12 @@ import com.zentrox.forge.entity.WorkflowInstance;
 import com.zentrox.forge.exception.ConflictException;
 import com.zentrox.forge.exception.InvalidTransitionException;
 import com.zentrox.forge.exception.NotFoundException;
+import com.zentrox.forge.notification.event.WorkflowTransitionedEvent;
 import com.zentrox.forge.repository.tenant.WorkflowDefinitionRepository;
 import com.zentrox.forge.repository.tenant.WorkflowInstanceRepository;
 import com.zentrox.forge.tenancy.TenantContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,10 +46,12 @@ public class WorkflowService {
     private final WorkflowDefinitionRepository definitionRepository;
     private final WorkflowInstanceRepository instanceRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     // ---------------------------------------------------------------- definitions
 
     @Audited(action = "WORKFLOW_DEFINITION_CREATE", entityType = "WorkflowDefinition")
+    @RequiresEntitlement(UsageMetric.WORKFLOW_DEFINITIONS)
     @Transactional
     public WorkflowDefinitionResponse createDefinition(WorkflowDefinitionRequest request, UUID actorUserId) {
         UUID tenantId = TenantContext.requireTenantId();
@@ -108,6 +114,8 @@ public class WorkflowService {
     // ------------------------------------------------------------------ instances
 
     @Audited(action = "WORKFLOW_INSTANCE_CREATE", entityType = "WorkflowInstance")
+    // Metered, not counted: "instances this month" is a rate, so there is no population to count.
+    @RequiresEntitlement(value = UsageMetric.WORKFLOW_INSTANCES_PER_MONTH, meter = true)
     @Transactional
     public WorkflowInstanceResponse createInstance(WorkflowInstanceCreateRequest request, UUID actorUserId) {
         UUID tenantId = TenantContext.requireTenantId();
@@ -150,21 +158,26 @@ public class WorkflowService {
         WorkflowDefinition definition = requireDefinition(instance.getWorkflowDefinitionId());
         WorkflowDefinitionPayload payload = readPayload(definition);
 
+        // Captured in the lambda below, so it must not be the (later reassigned) `instance` reference.
+        final String fromState = instance.getCurrentState();
         boolean allowed = payload.transitions().stream()
-                .anyMatch(t -> t.from().equals(instance.getCurrentState()) && t.to().equals(request.toState()));
+                .anyMatch(t -> t.from().equals(fromState) && t.to().equals(request.toState()));
         if (!allowed) {
             throw new InvalidTransitionException(
-                    "Transition from '" + instance.getCurrentState() + "' to '" + request.toState()
+                    "Transition from '" + fromState + "' to '" + request.toState()
                             + "' is not defined on workflow '" + definition.getName() + "'");
         }
 
         List<WorkflowHistoryEntry> history = new ArrayList<>(readHistory(instance));
-        history.add(new WorkflowHistoryEntry(instance.getCurrentState(), request.toState(), Instant.now(),
-                actorUserId));
+        history.add(new WorkflowHistoryEntry(fromState, request.toState(), Instant.now(), actorUserId));
 
         instance.setCurrentState(request.toState());
         instance.setHistoryJson(writeJson(history));
         instance = instanceRepository.save(instance);
+
+        eventPublisher.publishEvent(new WorkflowTransitionedEvent(
+                instance.getTenantId(), instance.getId(), definition.getName(), fromState,
+                request.toState(), actorUserId));
 
         return WorkflowInstanceResponse.from(instance, history);
     }

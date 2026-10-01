@@ -4,6 +4,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Project Forge - Multi-tenant Enterprise SaaS Platform.
@@ -13,6 +14,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
  */
 @SpringBootApplication
 @EnableAsync
+// Without this, the @Scheduled methods in scheduling.MaintenanceJobs are silently never invoked.
+@EnableScheduling
 @ConfigurationPropertiesScan
 public class ForgeApplication {
 

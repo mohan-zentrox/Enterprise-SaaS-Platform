@@ -31,3 +31,26 @@ forge:
   refresh-token:
     ttl-days: 30
     redis-key-prefix: "forge:test:refresh:"
+  api-keys:
+    hashing-key: test-only-api-key-pepper-0123456789abcdef
+    # Rate limiting off in tests: it needs a live Redis, and the limiter fails open, so leaving it
+    # on would make the public-API tests silently depend on whether Redis happens to be running.
+    rate-limit-per-minute: 0
+  billing:
+    provider: test-provider
+    self-serve-plan-change: true
+  mail:
+    enabled: false
+  sso:
+    base-url: http://localhost:8080
+    encryption-key: test-only-sso-encryption-key-0123456789abcdef
+    login-state-ttl-seconds: 300
+  scheduling:
+    # Far-future cron and a sweep delay longer than any test run: a background job firing mid-test
+    # would mutate usage counters and SSO state underneath assertions. The jobs are exercised
+    # directly in MaintenanceJobsTest instead.
+    usage-reset-cron: "0 0 0 1 1 ?"
+    sso-state-sweep-ms: 86400000
+    sso-state-sweep-initial-ms: 86400000
+  registration:
+    self-service-enabled: false

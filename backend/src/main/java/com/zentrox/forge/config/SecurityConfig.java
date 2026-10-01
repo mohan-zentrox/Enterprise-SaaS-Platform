@@ -1,5 +1,7 @@
 package com.zentrox.forge.config;
 
+import com.zentrox.forge.security.CorsProperties;
+import com.zentrox.forge.publicapi.ApiKeyAuthenticationFilter;
 import com.zentrox.forge.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -41,6 +43,8 @@ import java.util.Map;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
+    private final CorsProperties corsProperties;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -53,11 +57,17 @@ public class SecurityConfig {
                         // this they would be rejected by the authenticated() rule below before ever
                         // reaching the CorsFilter's actual allow/deny decision.
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/v1/tenants").permitAll()
+                        // POST only: tenant self-signup is public, but the administration endpoints
+                        // under /v1/tenants/current must fall through to authenticated() below.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/v1/tenants").permitAll()
                         .requestMatchers("/v1/auth/register", "/v1/auth/login", "/v1/auth/refresh").permitAll()
                         .requestMatchers("/v1/api-docs/**", "/v1/swagger-ui/**", "/v1/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                        .requestMatchers("/v1/public/**").permitAll() // API-key-authenticated scaffold, see publicapi package
+                        // Authenticated by HMAC signature, not by a token - see BillingWebhookController.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/v1/webhooks/**").permitAll()
+                        // permitAll at this layer because ApiKeyAuthenticationFilter is the real gate for
+                        // this prefix - it authenticates the X-Api-Key header and answers 401 itself.
+                        .requestMatchers("/v1/public/**").permitAll()
                         .requestMatchers("/v1/sso/**").permitAll() // SSO callback scaffold, see sso package (FRD-13.4)
                         .anyRequest().authenticated())
                 // Without this, Spring Security's default entry point for a plain
@@ -68,7 +78,10 @@ public class SecurityConfig {
                 // GlobalExceptionHandler#handleAccessDenied, thrown by @PreAuthorize)
                 // stays 403.
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(unauthorizedEntryPoint()))
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // Restricted to /v1/public/** by its own shouldNotFilter, so an API key can never
+                // authenticate against the user-facing API.
+                .addFilterBefore(apiKeyAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -84,12 +97,20 @@ public class SecurityConfig {
         };
     }
 
+    /**
+     * Origins come from {@code forge.cors.allowed-origins} (see CorsProperties). They are set as
+     * exact allowed origins rather than patterns: this configuration sets
+     * {@code allowCredentials(true)}, and a credentialed response may not echo a wildcard origin -
+     * browsers reject it. The previous {@code allowedOriginPatterns("*")} both ignored the
+     * configured value and let any site on the internet make credentialed calls to this API.
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        configuration.setAllowedOrigins(corsProperties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Tenant-Id"));
+        configuration.setAllowedHeaders(
+                List.of("Authorization", "Content-Type", "X-Tenant-Id", "X-Api-Key"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

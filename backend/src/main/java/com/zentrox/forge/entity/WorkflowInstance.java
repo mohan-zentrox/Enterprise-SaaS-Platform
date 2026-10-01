@@ -5,14 +5,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.Filter;
-import org.hibernate.annotations.FilterDef;
-import org.hibernate.annotations.ParamDef;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -24,7 +23,6 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "workflow_instances")
-@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = UUID.class))
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 @Getter
 @Setter
@@ -42,6 +40,17 @@ public class WorkflowInstance extends TenantScopedEntity {
     @Column(name = "history_json", nullable = false, columnDefinition = "TEXT")
     @Builder.Default
     private String historyJson = "[]";
+
+    /**
+     * Optimistic lock. Without it, two concurrent transitions each read history_json, append their
+     * own entry, and write it back - the slower write wins and the other transition disappears from
+     * the history entirely. Named lock_version rather than version to avoid confusion with
+     * {@link WorkflowDefinition#getVersion()}, which is a business-visible definition revision.
+     */
+    @Version
+    @Column(name = "lock_version", nullable = false)
+    @Builder.Default
+    private long lockVersion = 0L;
 
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;

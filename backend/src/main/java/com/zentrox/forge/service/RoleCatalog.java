@@ -20,6 +20,17 @@ public final class RoleCatalog {
     private RoleCatalog() {
     }
 
+    /**
+     * Case-insensitive: a custom role called "owner" would be indistinguishable from the system
+     * OWNER in a UI and confusing in an audit trail, so it is reserved too.
+     */
+    public static boolean isSystemRoleName(String name) {
+        return name != null
+                && (OWNER.equalsIgnoreCase(name.trim())
+                    || ADMIN.equalsIgnoreCase(name.trim())
+                    || MEMBER.equalsIgnoreCase(name.trim()));
+    }
+
     public static Map<String, Set<Permission>> systemRoleGrants() {
         Set<Permission> ownerGrants = EnumSet.allOf(Permission.class);
 

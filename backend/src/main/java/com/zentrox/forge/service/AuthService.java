@@ -12,11 +12,14 @@ import com.zentrox.forge.entity.UserStatus;
 import com.zentrox.forge.exception.ConflictException;
 import com.zentrox.forge.exception.InvalidCredentialsException;
 import com.zentrox.forge.exception.NotFoundException;
+import com.zentrox.forge.exception.SelfRegistrationDisabledException;
 import com.zentrox.forge.repository.TenantRepository;
 import com.zentrox.forge.repository.tenant.RoleRepository;
 import com.zentrox.forge.repository.tenant.UserRepository;
 import com.zentrox.forge.security.JwtProperties;
 import com.zentrox.forge.security.JwtService;
+import com.zentrox.forge.security.RegistrationProperties;
+import com.zentrox.forge.tenancy.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,15 +41,27 @@ public class AuthService {
     private final JwtService jwtService;
     private final JwtProperties jwtProperties;
     private final RefreshTokenService refreshTokenService;
+    private final RegistrationProperties registrationProperties;
 
     @Audited(action = "USER_REGISTER", entityType = "User")
     @Transactional
     public UserResponse register(RegisterRequest request) {
+        if (!registrationProperties.selfServiceEnabled()) {
+            throw new SelfRegistrationDisabledException(
+                    "Public self-registration is disabled. Ask an administrator of this organization to "
+                            + "invite you (POST /v1/users, permission USER_INVITE).");
+        }
+
         Tenant tenant = requireActiveTenant(request.tenantSlug());
 
         if (userRepository.existsByTenantIdAndEmail(tenant.getId(), request.email())) {
             throw new ConflictException("A user with this email already exists in this tenant");
         }
+
+        // This endpoint is unauthenticated, so TenantFilterInterceptor bound no tenant and the
+        // AuditAspect would silently skip the USER_REGISTER entry. Bind it explicitly - the same
+        // approach TenantService#createTenant takes for tenant self-signup.
+        TenantContext.setTenantId(tenant.getId());
 
         var memberRole = roleRepository.findByTenantIdAndName(tenant.getId(), RoleCatalog.MEMBER)
                 .orElseThrow(() -> new IllegalStateException(
@@ -107,6 +122,24 @@ public class AuthService {
 
     public void logout(String refreshToken) {
         refreshTokenService.revoke(refreshToken);
+    }
+
+    /**
+     * FRD-13.2 - the termination point for SSO logins.
+     *
+     * Exists so OidcLoginService issues tokens through exactly the same path as password login,
+     * rather than growing a parallel session mechanism. Password verification is the only step that
+     * is skipped: the identity provider has already established who the user is.
+     *
+     * Status is re-checked here rather than trusted from the caller, so this cannot become a way to
+     * mint tokens for a disabled account.
+     */
+    @Transactional
+    public AuthResponse issueTokensForSsoLogin(User user) {
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new InvalidCredentialsException("This account is disabled");
+        }
+        return issueTokenPair(user);
     }
 
     private AuthResponse issueTokenPair(User user) {

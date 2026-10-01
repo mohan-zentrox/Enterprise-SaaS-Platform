@@ -43,7 +43,49 @@ forge:
     ttl-days: ${FORGE_REFRESH_TOKEN_TTL_DAYS:30}
     redis-key-prefix: "forge:refresh:"
   cors:
+    # Exact origins, comma-separated. Not patterns and never "*": this API sends credentialed
+    # CORS responses, which may not echo a wildcard origin. See CorsProperties.
     allowed-origins: ${FORGE_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  billing:
+    # Identifies the payment provider in the webhook idempotency ledger.
+    provider: ${FORGE_BILLING_PROVIDER:manual}
+    # Shared secret for the HMAC-SHA256 signature on POST /v1/webhooks/billing. Blank means webhook
+    # handling is REFUSED (503), never accepted unverified - that endpoint mutates subscription state.
+    webhook-secret: ${FORGE_BILLING_WEBHOOK_SECRET:}
+    # Allows PATCHing your own plan without a payment provider. Correct for development and for
+    # invoice-billed deployments; must be false wherever a card is involved.
+    self-serve-plan-change: ${FORGE_BILLING_SELF_SERVE:true}
+  mail:
+    # When false (default) email is written to the log instead of sent - see LoggingEmailSender.
+    enabled: ${FORGE_MAIL_ENABLED:false}
+    from: ${FORGE_MAIL_FROM:no-reply@localhost}
+  api-keys:
+    # Pepper for the keyed hash of API-key secrets. Separate from the JWT secret so it can be
+    # rotated independently - rotating this invalidates every customer integration, rotating the JWT
+    # secret does not. MUST be overridden outside local development.
+    hashing-key: ${FORGE_API_KEY_HASHING_KEY:dev-only-api-key-pepper-change-me-0123456789}
+    # Per-key requests per minute on /v1/public/**. 0 disables rate limiting.
+    rate-limit-per-minute: ${FORGE_API_KEY_RATE_LIMIT:120}
+  sso:
+    # Externally reachable origin of this API. Must match what is registered at the IdP - it cannot
+    # be derived from the request, because behind a proxy that reports the internal host (and is
+    # attacker-influenceable via the Host header). See SsoProperties.
+    base-url: ${FORGE_SSO_BASE_URL:http://localhost:8080}
+    # Encrypts IdP client secrets at rest (AES-GCM). Separate from every other secret so rotating it
+    # only costs re-entering IdP secrets. MUST be overridden outside local development.
+    encryption-key: ${FORGE_SSO_ENCRYPTION_KEY:dev-only-sso-encryption-key-change-me-0123456789}
+    # How long an in-flight authorization request stays redeemable.
+    login-state-ttl-seconds: ${FORGE_SSO_LOGIN_STATE_TTL:300}
+  scheduling:
+    # 00:05 UTC on the 1st. Offset from midnight so it does not contend with every other cron job
+    # in the deployment starting at exactly 00:00.
+    usage-reset-cron: ${FORGE_USAGE_RESET_CRON:0 5 0 1 * *}
+    sso-state-sweep-ms: ${FORGE_SSO_SWEEP_MS:3600000}
+    sso-state-sweep-initial-ms: ${FORGE_SSO_SWEEP_INITIAL_MS:60000}
+  registration:
+    # Public POST /v1/auth/register. Off by default - knowing a tenant slug must not be enough to
+    # create an account in it. Add users via POST /v1/users (permission USER_INVITE) instead.
+    self-service-enabled: ${FORGE_SELF_SERVICE_REGISTRATION:false}
 
 springdoc:
   api-docs:

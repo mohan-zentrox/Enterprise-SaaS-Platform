@@ -1,0 +1,5 @@
+# target/ is rebuilt inside the image; shipping the host's copy wastes context and risks baking a
+# stale jar into the build cache.
+target
+
+.env
